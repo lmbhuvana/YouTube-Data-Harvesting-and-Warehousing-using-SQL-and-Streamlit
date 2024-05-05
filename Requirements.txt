@@ -1,0 +1,6 @@
+YouTube Data API
+Python
+MongoDB
+MySQL
+Pandas
+Streamlit
