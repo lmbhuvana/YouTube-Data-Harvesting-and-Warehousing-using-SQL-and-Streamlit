@@ -29,7 +29,7 @@ connection = engine.connect()
 
 # To build connection with YouTube API
 def api_connection():
-    api_id = "AIzaSyCi1PwnZJIXJpt-PCTfUMOaLMkMzjSlLWs"
+    api_id = "GIVE YOUR API KEY" 
     api_service_name = "youtube"
     api_version= "v3"
 
