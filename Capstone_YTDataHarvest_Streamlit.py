@@ -7,6 +7,7 @@ import streamlit as st
 from sqlalchemy import create_engine
 from datetime import datetime
 from PIL import Image
+import re
 
 # Upload to MongoDB
 myclient = pymongo.MongoClient("mongodb://localhost:27017/")
@@ -29,7 +30,7 @@ connection = engine.connect()
 
 # To build connection with YouTube API
 def api_connection():
-    api_id = "GIVE YOUR API KEY" 
+    api_id = "AIzaSyCi1PwnZJIXJpt-PCTfUMOaLMkMzjSlLWs"
     api_service_name = "youtube"
     api_version= "v3"
 
@@ -82,7 +83,25 @@ def get_channel_videos(channel_id):
 
     return video_ids
 
-#To get Video Details
+#To change Duration from PT to HHMMSS format
+
+def duration_to_seconds(duration_str):
+    # Define a regular expression pattern to match durations
+    pattern = r'PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?'
+
+    # Use regular expression to find the numerical values of hours, minutes, and seconds
+    match = re.match(pattern, duration_str)
+
+    if match:
+        hours = int(match.group(1)) if match.group(1) else 0
+        minutes = int(match.group(2)) if match.group(2) else 0
+        seconds = int(match.group(3)) if match.group(3) else 0
+
+        # Calculate total duration in seconds
+        
+        return (f"{hours}:{minutes}:{seconds}")
+    else:
+        return "0:0:0"  # Return None if the format is not matched
 
 def get_video_info(video_ids):
     video_data=[]
@@ -91,6 +110,9 @@ def get_video_info(video_ids):
         response=request.execute()
 
         for i in response['items']:
+            duration_str = i['contentDetails']['duration']
+            duration_seconds = duration_to_seconds(duration_str)
+
             video_information={
                 'Channel_Name' :i['snippet']['channelTitle'],
                 'Channel_Id':i['snippet']['channelId'],
@@ -100,7 +122,7 @@ def get_video_info(video_ids):
                 'Thumbnail':i['snippet']['thumbnails']['default']['url'],
                 'Description':i['snippet'].get('description'),
                 'Published_Date':i['snippet']['publishedAt'],
-                'Duration':i['contentDetails']['duration'],
+                'Duration':duration_to_seconds(i['contentDetails']['duration']),
                 'Views':i['statistics'].get('viewCount'),
                 'Likes':i['statistics'].get('likeCount'),
                 'Comments':i['statistics'].get('commentCount'),
@@ -111,7 +133,8 @@ def get_video_info(video_ids):
             video_data.append(video_information)    
     return video_data
 
-#To get Coemment Details
+
+#To get Comment Details
 
 def get_comment_info(video_ids):
     Comment_data = []
@@ -197,6 +220,59 @@ def data_from_mongodb(channel_id):
     collection = mydb["all_channel_details"]
     d = collection.find_one({'channel_information.Channel_id': channel_id})
     return d
+# SQL table craetion
+
+#To create table for Channels, Playlists, Videos, Commments
+def table_sql():
+
+    create_query= '''create table if not exists channels(Channel_id varchar(30) primary key,
+                                                        Channel_name varchar(100),
+                                                        Playlist_id varchar(80),
+                                                        Subscribers bigint,
+                                                        Views bigint,
+                                                        Total_videos int,
+                                                        Description text)'''
+
+    mycursor.execute(create_query)
+    db.commit()
+    #To create playlists
+    create_query= '''create table if not exists playlists(Playlist_Id varchar(50) primary key,
+                                                        Title varchar(100),
+                                                        Channel_Id varchar(30),
+                                                        Channel_Name varchar(100),
+                                                        PublishedAt timestamp,
+                                                        Video_Count int
+                                                        )'''
+    mycursor.execute(create_query)
+    db.commit()
+    #To create videos
+    create_query='''create table if not exists videos(Channel_Name varchar(100),
+                                                    Channel_Id varchar(30),
+                                                    Video_Id varchar(30) primary key,
+                                                    Title varchar(150),
+                                                    Tags text,
+                                                    Thumbnail varchar(200),
+                                                    Description text,
+                                                    Published_Date timestamp,
+                                                    Duration time,
+                                                    Views bigint,
+                                                    Likes bigint,
+                                                    Comments int,
+                                                    Favorite_Count int,
+                                                    Definition varchar(10),
+                                                    Caption_Status varchar(50)
+                                                    )'''
+    mycursor.execute(create_query)
+    db.commit()
+    #To create playlistscomments
+    create_query='''create table if not exists comments(Comment_Id varchar(100) primary key,
+                                                        Video_Id varchar(100),
+                                                        Comment_Text text,
+                                                        Comment_Author varchar(100),
+                                                        Comment_Published timestamp
+                                                        )'''
+    mycursor.execute(create_query)
+    db.commit()
 
 # SETTING PAGE CONFIGURATIONS
 icon =Image.open("D:\YTLogo.png")
@@ -265,6 +341,7 @@ if select_box =="Migrate to SQL":
             comment_df = pd.DataFrame(data['comment_information'])
             
             try:
+                table_sql()
                 # Insert data into 'channels' table
                 channel_df.to_sql('channels', con=engine, if_exists='append', index=False, method='multi', chunksize=1000)
 
@@ -375,13 +452,14 @@ if select_box =="Queries":
                 st.write(df)
 
         elif questions == '9. What is the average duration of all videos in each channel, and what are their corresponding channel names?':
-                   mycursor.execute("""SELECT channel_name AS Channel_Name, AVG(duration)/60 AS Average_Duration
-                                       FROM videos
-                                       GROUP BY channel_name
-                                       ORDER BY AVG(duration)/60 DESC""")
-                   df = pd.DataFrame(mycursor.fetchall(), columns=mycursor.column_names)
-                   st.write("### :green[Average video duration for channels :]")
-                   st.write(df)         
+                mycursor.execute("""SELECT channel_name AS Channel_Name, floor(AVG(duration)) AS Average_Video_Duration
+                                    FROM videos
+                                    GROUP BY channel_name
+                                    ORDER BY (duration) DESC""")
+                df = pd.DataFrame(mycursor.fetchall(), columns=mycursor.column_names)
+                df["Average_Video_Duration"]=pd.to_datetime(df["Average_Video_Duration"], unit='s').dt.time
+                st.write("### :green[Average video duration for channels :]")
+                st.write(df)         
 
         elif questions == '10. Which videos have the highest number of comments, and what are their corresponding channel names?':
                 mycursor.execute("""SELECT channel_name AS Channel_Name,Video_id AS Video_ID,Comments
